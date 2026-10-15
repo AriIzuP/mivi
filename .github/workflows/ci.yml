@@ -43,7 +43,8 @@ jobs:
 
       - name: Lint
         run: pnpm lint
-
+      - name: Format recorder files
+        run: pnpm exec oxfmt src/lib/media-compositor/legacy-recorder.ts src/lib/media-compositor/use-recorder.ts
       - name: Format Check
         run: pnpm format:check
 
