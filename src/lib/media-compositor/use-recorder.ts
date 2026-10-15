@@ -57,11 +57,24 @@ export function useRecorder() {
         );
       };
 
-      return runRecorder(
-        { midiTracks, audioSource, rendererConfig, backgroundImageBitmap },
-        onProgress,
-        signal,
-      )
+      const resources = {
+  midiTracks,
+  audioSource,
+  rendererConfig,
+  backgroundImageBitmap,
+};
+
+const supportsModernExport =
+  "VideoEncoder" in window &&
+  "AudioEncoder" in window &&
+  "OffscreenCanvas" in window &&
+  "FileSystemWritableFileStream" in window;
+
+const recordingPromise = supportsModernExport
+  ? runRecorder(resources, onProgress, signal)
+  : runLegacyRecorder(resources, onProgress, signal);
+
+return recordingPromise
         .then((file) => {
           if (signal.aborted) return;
           const url = URL.createObjectURL(file);
