@@ -11,7 +11,7 @@ import {
 
 import type { ActivePhase } from "./export-progress-tracker";
 import { runRecorder } from "./run-recorder-worker";
-
+import { runLegacyRecorder } from "./legacy-recorder";
 export function useRecorder() {
   const { midiTracksStore, rendererConfigStore, fileStore } = useAppContext();
   const [recordingState, setRecordingState] = useState<RecordingStatus>(new ReadyState());
@@ -81,7 +81,11 @@ return recordingPromise
           const a = document.createElement("a");
           a.href = url;
           const exportName = midiTracks?.name ?? audioSource.name ?? "audio";
-          a.download = `mivi-${exportName}.${rendererConfig.format}`;
+         const extension = file.type.includes("webm")
+  ? "webm"
+  : rendererConfig.format;
+
+a.download = `mivi-${exportName}.${extension}`;
           a.click();
           URL.revokeObjectURL(url);
           toast.add({ title: "Export completed", type: "success" });
