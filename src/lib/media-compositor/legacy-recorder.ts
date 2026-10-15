@@ -2,7 +2,7 @@ import { computeFFTAtTime } from "@/lib/audio/fft-precompute";
 import type { RecorderResources } from "./recorder-resources";
 import { createRenderer } from "@/lib/renderers/create-renderer";
 import { drawFrame } from "@/lib/renderers/draw-frame";
-import { runLegacyRecorder } from "./legacy-recorder";
+
 export async function runLegacyRecorder(
 resources: RecorderResources,
 onProgress: (progress: number) => void,
