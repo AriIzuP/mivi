@@ -1,0 +1,79 @@
+name: Build MiVI Android APK
+
+'on':
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.24.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install project dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build MiVI web app
+        run: pnpm build -- --base=./
+
+      - name: Install Capacitor
+        run: |
+          pnpm add @capacitor/core@6 @capacitor/android@6
+          pnpm add -D @capacitor/cli@6
+
+      - name: Configure Capacitor
+        run: |
+          cat > capacitor.config.json <<'EOF'
+          {
+            "appId": "com.ariizup.mivi",
+            "appName": "MiVI",
+            "webDir": "dist",
+            "server": {
+              "androidScheme": "https"
+            }
+          }
+          EOF
+
+      - name: Generate Android project
+        run: pnpm exec cap add android
+
+      - name: Copy web app into Android project
+        run: pnpm exec cap sync android
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Build debug APK
+        run: |
+          chmod +x android/gradlew
+          cd android
+          ./gradlew assembleDebug
+
+      - name: Upload MiVI APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: MiVI-Android-APK
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 7
