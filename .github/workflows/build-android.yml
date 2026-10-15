@@ -1,6 +1,6 @@
 name: Build MiVI Android APK
 
-'on':
+on:
   workflow_dispatch:
 
 permissions:
