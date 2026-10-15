@@ -50,10 +50,10 @@ jobs:
           EOF
 
       - name: Generate Android project
-        run: pnpm exec cap add android
+        run: node ./node_modules/@capacitor/cli/bin/capacitor add android
 
       - name: Copy web app into Android project
-        run: pnpm exec cap sync android
+        run: node ./node_modules/@capacitor/cli/bin/capacitor sync android
 
       - name: Setup Java
         uses: actions/setup-java@v4
