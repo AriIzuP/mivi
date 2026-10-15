@@ -70,9 +70,16 @@ const supportsModernExport =
   "OffscreenCanvas" in window &&
   "FileSystemWritableFileStream" in window;
 
+const supportsLegacyExport =
+  typeof MediaRecorder !== "undefined" &&
+  typeof HTMLCanvasElement !== "undefined" &&
+  typeof HTMLCanvasElement.prototype.captureStream === "function";
+
 const recordingPromise = supportsModernExport
   ? runRecorder(resources, onProgress, signal)
-  : runLegacyRecorder(resources, onProgress, signal);
+  : supportsLegacyExport
+    ? runLegacyRecorder(resources, onProgress, signal)
+    : runRecorder(resources, onProgress, signal);
 
 return recordingPromise
         .then((file) => {
