@@ -54,6 +54,183 @@ jobs:
       - name: Copy web app into Android project
         run: node ./node_modules/@capacitor/cli/bin/capacitor sync android
 
+      - name: Add native streaming video saver
+        shell: bash
+        run: |
+          mkdir -p android/app/src/main/java/com/ariizup/mivi
+
+          cat > android/app/src/main/java/com/ariizup/mivi/VideoSaverPlugin.java <<'JAVA'
+          package com.ariizup.mivi;
+
+          import android.app.Activity;
+          import android.content.Intent;
+          import android.net.Uri;
+          import android.util.Base64;
+
+          import androidx.activity.result.ActivityResult;
+
+          import com.getcapacitor.JSObject;
+          import com.getcapacitor.Plugin;
+          import com.getcapacitor.PluginCall;
+          import com.getcapacitor.PluginMethod;
+          import com.getcapacitor.annotation.ActivityCallback;
+          import com.getcapacitor.annotation.CapacitorPlugin;
+
+          import java.io.IOException;
+          import java.io.OutputStream;
+
+          @CapacitorPlugin(name = "VideoSaver")
+          public class VideoSaverPlugin extends Plugin {
+              private OutputStream outputStream;
+
+              @PluginMethod
+              public void beginSave(PluginCall call) {
+                  String fileName = call.getString("fileName", "mivi.webm");
+                  String contentType = call.getString("contentType", "video/webm");
+
+                  closeOutputStreamQuietly();
+
+                  Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+                  intent.addCategory(Intent.CATEGORY_OPENABLE);
+                  intent.setType(contentType);
+                  intent.putExtra(Intent.EXTRA_TITLE, fileName);
+
+                  startActivityForResult(call, intent, "savePickerResult");
+              }
+
+              @ActivityCallback
+              private void savePickerResult(PluginCall call, ActivityResult result) {
+                  if (call == null) {
+                      return;
+                  }
+
+                  if (result == null
+                      || result.getResultCode() != Activity.RESULT_OK
+                      || result.getData() == null) {
+                      call.reject("SAVE_CANCELLED");
+                      return;
+                  }
+
+                  Uri uri = result.getData().getData();
+
+                  if (uri == null) {
+                      call.reject("Lokasi penyimpanan tidak valid.");
+                      return;
+                  }
+
+                  try {
+                      OutputStream stream =
+                          getContext().getContentResolver().openOutputStream(uri, "w");
+
+                      if (stream == null) {
+                          call.reject("Tidak dapat membuka file tujuan.");
+                          return;
+                      }
+
+                      synchronized (this) {
+                          closeOutputStreamQuietly();
+                          outputStream = stream;
+                      }
+
+                      JSObject response = new JSObject();
+                      response.put("uri", uri.toString());
+                      call.resolve(response);
+                  } catch (Exception e) {
+                      call.reject(
+                          "Tidak dapat membuka file tujuan: " + e.getMessage(),
+                          e
+                      );
+                  }
+              }
+
+              @PluginMethod
+              public synchronized void appendChunk(PluginCall call) {
+                  String data = call.getString("base64Data");
+
+                  if (outputStream == null) {
+                      call.reject("Penyimpanan belum dibuka.");
+                      return;
+                  }
+
+                  if (data == null || data.isEmpty()) {
+                      call.reject("Potongan video kosong.");
+                      return;
+                  }
+
+                  try {
+                      byte[] bytes = Base64.decode(data, Base64.DEFAULT);
+                      outputStream.write(bytes);
+                      call.resolve();
+                  } catch (Exception e) {
+                      closeOutputStreamQuietly();
+                      call.reject(
+                          "Gagal menulis potongan video: " + e.getMessage(),
+                          e
+                      );
+                  }
+              }
+
+              @PluginMethod
+              public synchronized void finishSave(PluginCall call) {
+                  if (outputStream == null) {
+                      call.reject("Tidak ada file yang sedang disimpan.");
+                      return;
+                  }
+
+                  OutputStream stream = outputStream;
+                  outputStream = null;
+
+                  try {
+                      stream.flush();
+                      stream.close();
+                      call.resolve();
+                  } catch (IOException e) {
+                      try {
+                          stream.close();
+                      } catch (IOException ignored) {
+                      }
+
+                      call.reject(
+                          "Gagal menyelesaikan file video: " + e.getMessage(),
+                          e
+                      );
+                  }
+              }
+
+              @PluginMethod
+              public synchronized void cancelSave(PluginCall call) {
+                  closeOutputStreamQuietly();
+                  call.resolve();
+              }
+
+              private synchronized void closeOutputStreamQuietly() {
+                  if (outputStream != null) {
+                      try {
+                          outputStream.close();
+                      } catch (IOException ignored) {
+                      } finally {
+                          outputStream = null;
+                      }
+                  }
+              }
+          }
+          JAVA
+
+          cat > android/app/src/main/java/com/ariizup/mivi/MainActivity.java <<'JAVA'
+          package com.ariizup.mivi;
+
+          import android.os.Bundle;
+          import com.getcapacitor.BridgeActivity;
+
+          public class MainActivity extends BridgeActivity {
+              @Override
+              public void onCreate(Bundle savedInstanceState) {
+                  registerPlugin(VideoSaverPlugin.class);
+                  super.onCreate(savedInstanceState);
+              }
+          }
+          JAVA
+
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
@@ -64,11 +241,13 @@ jobs:
         uses: android-actions/setup-android@v3
         with:
           packages: 'platform-tools platforms;android-36 build-tools;35.0.0'
+
       - name: Build debug APK
         run: |
           chmod +x android/gradlew
           cd android
           ./gradlew assembleDebug --stacktrace --info
+
       - name: Upload MiVI APK
         uses: actions/upload-artifact@v4
         with:
