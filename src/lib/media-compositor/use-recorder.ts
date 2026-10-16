@@ -123,6 +123,10 @@ export function useRecorder() {
         typeof HTMLCanvasElement !== "undefined" &&
         typeof HTMLCanvasElement.prototype.captureStream === "function";
 
+      console.log("[MiVI Export] Platform:", Capacitor.getPlatform());
+      console.log("[MiVI Export] Modern:", supportsModernExport);
+      console.log("[MiVI Export] Legacy:", supportsLegacyExport);
+
       const recordingPromise = supportsModernExport
         ? runRecorder(resources, onProgress, signal)
         : supportsLegacyExport
@@ -132,6 +136,21 @@ export function useRecorder() {
       return recordingPromise
         .then(async (file) => {
           if (signal.aborted) return;
+
+          console.log("[MiVI Export] Size:", file.size);
+          console.log("[MiVI Export] Type:", file.type);
+
+          toast.add({
+            title: `DEBUG: ${Capacitor.getPlatform()} | ${file.size} bytes`,
+            type: "info",
+          });
+
+          if (file.size < 10000) {
+            errorLogWithToast(
+              `Video terlalu kecil: ${file.size} bytes. Ekspor kemungkinan gagal.`,
+            );
+            return;
+          }
 
           const exportName =
             midiTracks?.name ?? audioSource.name ?? "audio";
@@ -150,6 +169,8 @@ export function useRecorder() {
               data: base64Data,
               directory: Directory.Cache,
             });
+
+            console.log("[MiVI Export] Saved URI:", savedFile.uri);
 
             await Share.share({
               title: "Video MiVI",
@@ -187,6 +208,8 @@ export function useRecorder() {
           }, 10000);
         })
         .catch((error) => {
+          console.error("[MiVI Export] Error:", error);
+
           if (signal.aborted) {
             toast.add({
               title: "Export cancelled",
