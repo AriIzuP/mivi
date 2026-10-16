@@ -23,18 +23,17 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: pnpm
 
       - name: Install project dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Install Capacitor and Android plugins
+        run: |
+          pnpm add @capacitor/core@6 @capacitor/android@6 @capacitor/filesystem@6 @capacitor/share@6
+          pnpm add -D @capacitor/cli@6
+
       - name: Build MiVI web app
         run: pnpm exec vite build --base=./ --target=chrome70
-
-      - name: Install Capacitor
-        run: |
-          pnpm add @capacitor/core@6 @capacitor/android@6
-          pnpm add -D @capacitor/cli@6
 
       - name: Configure Capacitor
         run: |
