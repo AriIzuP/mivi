@@ -5,29 +5,27 @@ import { Progress } from "@/components/ui/progress";
 import { Spinner } from "@/components/ui/spinner";
 import { formatEta } from "@/lib/media-compositor/format-eta";
 import { useRecorder } from "@/lib/media-compositor/use-recorder";
-import { startViewTransition } from "@/lib/utils";
 
 export function ExportButton() {
   const { recordingState, toggleRecording } = useRecorder();
+
   const handleToggleRecording = useCallback(() => {
-    startViewTransition(
-      () => {
-        void toggleRecording();
-      },
-      { types: ["export-button-change"] },
-    );
+    void toggleRecording();
   }, [toggleRecording]);
 
   return (
     <>
-      {recordingState.type === "recording" && recordingState.activePhase && (
-        <span className="hidden text-muted-foreground tabular-nums md:inline md:text-xs">
-          {recordingState.activePhase.name} — {formatEta(recordingState.activePhase.etaSeconds)}
-        </span>
-      )}
+      {recordingState.type === "recording" &&
+        recordingState.activePhase && (
+          <span className="hidden text-muted-foreground tabular-nums md:inline md:text-xs">
+            {recordingState.activePhase.name} —{" "}
+            {formatEta(recordingState.activePhase.etaSeconds)}
+          </span>
+        )}
+
       <Button
         onClick={handleToggleRecording}
-        className="h-8 px-3 md:h-9 md:px-4 [html:active-view-transition-type(export-button-change)_&]:[view-transition-name:export-button]"
+        className="h-8 px-3 md:h-9 md:px-4"
       >
         {recordingState.type === "recording" ? (
           <>
@@ -38,6 +36,7 @@ export function ExportButton() {
           "Start export"
         )}
       </Button>
+
       {recordingState.type === "recording" && (
         <Progress
           aria-label="Export progress"
