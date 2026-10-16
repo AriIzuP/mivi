@@ -1,7 +1,6 @@
 import { useState, useCallback, useRef } from "react";
 import { Capacitor } from "@capacitor/core";
-import { Directory, Filesystem } from "@capacitor/filesystem";
-import { Share } from "@capacitor/share";
+import { FileSharer } from "@capgo/capacitor-file-sharer";
 
 import { toast } from "@/components/ui/toast";
 import { useAppContext } from "@/contexts/app-context";
@@ -26,7 +25,15 @@ function blobToBase64(blob: Blob): Promise<string> {
         return;
       }
 
-      resolve(reader.result.split(",")[1]);
+      const result = reader.result;
+      const separator = result.indexOf(",");
+
+      if (separator < 0) {
+        reject(new Error("Format video tidak valid."));
+        return;
+      }
+
+      resolve(result.slice(separator + 1));
     };
 
     reader.onerror = () => {
@@ -123,10 +130,6 @@ export function useRecorder() {
         typeof HTMLCanvasElement !== "undefined" &&
         typeof HTMLCanvasElement.prototype.captureStream === "function";
 
-      console.log("[MiVI Export] Platform:", Capacitor.getPlatform());
-      console.log("[MiVI Export] Modern:", supportsModernExport);
-      console.log("[MiVI Export] Legacy:", supportsLegacyExport);
-
       const recordingPromise = supportsModernExport
         ? runRecorder(resources, onProgress, signal)
         : supportsLegacyExport
@@ -137,13 +140,9 @@ export function useRecorder() {
         .then(async (file) => {
           if (signal.aborted) return;
 
+          console.log("[MiVI Export] Platform:", Capacitor.getPlatform());
           console.log("[MiVI Export] Size:", file.size);
           console.log("[MiVI Export] Type:", file.type);
-
-          toast.add({
-            title: `DEBUG: ${Capacitor.getPlatform()} | ${file.size} bytes`,
-            type: "info",
-          });
 
           if (file.size < 10000) {
             errorLogWithToast(
@@ -155,52 +154,36 @@ export function useRecorder() {
           const exportName =
             midiTracks?.name ?? audioSource.name ?? "audio";
 
+          const safeName = exportName.replace(/[\\/:*?"<>|]/g, "_");
           const extension = file.type.includes("webm")
             ? "webm"
             : rendererConfig.format;
 
-          const fileName = `mivi-${exportName}.${extension}`;
+          const fileName = `mivi-${safeName}.${extension}`;
 
           if (Capacitor.isNativePlatform()) {
             toast.add({
-              title: "DEBUG: Mulai mengubah video",
+              title: "Menyiapkan video untuk disimpan...",
               type: "info",
             });
 
             const base64Data = await blobToBase64(file);
 
-            toast.add({
-              title: "DEBUG: Mulai menyimpan video",
-              type: "info",
+            if (signal.aborted) return;
+
+            const result = await FileSharer.save({
+              filename: fileName,
+              contentType: file.type || "video/webm",
+              base64Data,
+              android: {
+                saveDirectory: "downloads",
+              },
             });
 
-            const savedFile = await Filesystem.writeFile({
-              path: fileName,
-              data: base64Data,
-              directory: Directory.Cache,
-            });
-
-            console.log("[MiVI Export] Saved URI:", savedFile.uri);
-
-            toast.add({
-              title: "DEBUG: File berhasil disimpan",
-              type: "success",
-            });
+            console.log("[MiVI Export] Saved URI:", result.uri);
 
             toast.add({
-              title: "DEBUG: Membuka menu berbagi",
-              type: "info",
-            });
-
-            await Share.share({
-              title: "Video MiVI",
-              text: "Video hasil ekspor MiVI",
-              files: [savedFile.uri],
-              dialogTitle: "Simpan atau bagikan video",
-            });
-
-            toast.add({
-              title: "Video siap dibagikan",
+              title: "Video berhasil disimpan ke Download",
               type: "success",
             });
 
@@ -238,7 +221,7 @@ export function useRecorder() {
             return;
           }
 
-          errorLogWithToast("Failed during recording", error);
+          errorLogWithToast("Failed during recording or saving", error);
         })
         .finally(() => {
           abortControllerRef.current = null;
