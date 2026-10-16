@@ -69,8 +69,7 @@ jobs:
         run: |
           chmod +x android/gradlew
           cd android
-          ./gradlew assembleDebug
-
+          ./gradlew assembleDebug --stacktrace --info
       - name: Upload MiVI APK
         uses: actions/upload-artifact@v4
         with:
