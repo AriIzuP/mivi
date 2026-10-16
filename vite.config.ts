@@ -124,7 +124,7 @@ export default defineConfig(({ mode }) => ({
   },
   oxc: {
     // transform explicit-resource-management
-    target: "ES2023",
+    target: "ES2015",
   },
   resolve: {
     tsconfigPaths: true,
