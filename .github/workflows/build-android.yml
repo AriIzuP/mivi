@@ -33,7 +33,7 @@ jobs:
           pnpm add -D @capacitor/cli@8
 
       - name: Build MiVI web app
-        run: pnpm exec vite build --base=./ --target=chrome70
+        run: pnpm exec vite build --base=./
 
       - name: Configure Capacitor
         run: |
