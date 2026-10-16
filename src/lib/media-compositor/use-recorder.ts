@@ -1,4 +1,7 @@
 import { useState, useCallback, useRef } from "react";
+import { Capacitor } from "@capacitor/core";
+import { Directory, Filesystem } from "@capacitor/filesystem";
+import { Share } from "@capacitor/share";
 
 import { toast } from "@/components/ui/toast";
 import { useAppContext } from "@/contexts/app-context";
@@ -12,9 +15,28 @@ import {
 import type { ActivePhase } from "./export-progress-tracker";
 import { runRecorder } from "./run-recorder-worker";
 import { runLegacyRecorder } from "./legacy-recorder";
-import { Capacitor } from "@capacitor/core";
-import { Directory, Filesystem } from "@capacitor/filesystem";
-import { Share } from "@capacitor/share";
+
+function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+
+    reader.onloadend = () => {
+      if (typeof reader.result !== "string") {
+        reject(new Error("Gagal membaca hasil video."));
+        return;
+      }
+
+      resolve(reader.result.split(",")[1]);
+    };
+
+    reader.onerror = () => {
+      reject(new Error("Gagal mengubah video."));
+    };
+
+    reader.readAsDataURL(blob);
+  });
+}
+
 export function useRecorder() {
   const { midiTracksStore, rendererConfigStore, fileStore } = useAppContext();
 
@@ -108,10 +130,8 @@ export function useRecorder() {
           : runRecorder(resources, onProgress, signal);
 
       return recordingPromise
-        .then((file) => {
+        .then(async (file) => {
           if (signal.aborted) return;
-
-          const url = URL.createObjectURL(file);
 
           const exportName =
             midiTracks?.name ?? audioSource.name ?? "audio";
@@ -121,6 +141,32 @@ export function useRecorder() {
             : rendererConfig.format;
 
           const fileName = `mivi-${exportName}.${extension}`;
+
+          if (Capacitor.isNativePlatform()) {
+            const base64Data = await blobToBase64(file);
+
+            const savedFile = await Filesystem.writeFile({
+              path: fileName,
+              data: base64Data,
+              directory: Directory.Cache,
+            });
+
+            await Share.share({
+              title: "Video MiVI",
+              text: "Video hasil ekspor MiVI",
+              files: [savedFile.uri],
+              dialogTitle: "Simpan atau bagikan video",
+            });
+
+            toast.add({
+              title: "Video siap dibagikan",
+              type: "success",
+            });
+
+            return;
+          }
+
+          const url = URL.createObjectURL(file);
 
           const a = document.createElement("a");
           a.href = url;
@@ -135,7 +181,6 @@ export function useRecorder() {
             type: "success",
           });
 
-          // Beri waktu kepada Android/WebView untuk memproses unduhan.
           window.setTimeout(() => {
             a.remove();
             URL.revokeObjectURL(url);
