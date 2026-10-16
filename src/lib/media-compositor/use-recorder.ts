@@ -162,7 +162,17 @@ export function useRecorder() {
           const fileName = `mivi-${exportName}.${extension}`;
 
           if (Capacitor.isNativePlatform()) {
+            toast.add({
+              title: "DEBUG: Mulai mengubah video",
+              type: "info",
+            });
+
             const base64Data = await blobToBase64(file);
+
+            toast.add({
+              title: "DEBUG: Mulai menyimpan video",
+              type: "info",
+            });
 
             const savedFile = await Filesystem.writeFile({
               path: fileName,
@@ -171,6 +181,16 @@ export function useRecorder() {
             });
 
             console.log("[MiVI Export] Saved URI:", savedFile.uri);
+
+            toast.add({
+              title: "DEBUG: File berhasil disimpan",
+              type: "success",
+            });
+
+            toast.add({
+              title: "DEBUG: Membuka menu berbagi",
+              type: "info",
+            });
 
             await Share.share({
               title: "Video MiVI",
