@@ -29,7 +29,7 @@ jobs:
 
       - name: Install Capacitor and Android plugins
         run: |
-          pnpm add @capacitor/core@6 @capacitor/android@6 @capacitor/filesystem@6 @capacitor/share@6
+          pnpm add @capacitor/core@6 @capacitor/android@6 @capacitor/filesystem@6 @capacitor/share@6 @capgo/capacitor-file-sharer@6
           pnpm add -D @capacitor/cli@6
 
       - name: Build MiVI web app
