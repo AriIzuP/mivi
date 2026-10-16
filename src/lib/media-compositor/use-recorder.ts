@@ -12,7 +12,9 @@ import {
 import type { ActivePhase } from "./export-progress-tracker";
 import { runRecorder } from "./run-recorder-worker";
 import { runLegacyRecorder } from "./legacy-recorder";
-
+import { Capacitor } from "@capacitor/core";
+import { Directory, Filesystem } from "@capacitor/filesystem";
+import { Share } from "@capacitor/share";
 export function useRecorder() {
   const { midiTracksStore, rendererConfigStore, fileStore } = useAppContext();
 
