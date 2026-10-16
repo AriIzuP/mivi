@@ -29,8 +29,8 @@ jobs:
 
       - name: Install Capacitor and Android plugins
         run: |
-          pnpm add @capacitor/core@6 @capacitor/android@6 @capacitor/filesystem@6 @capacitor/share@6 @capgo/capacitor-file-sharer
-          pnpm add -D @capacitor/cli@6
+          pnpm add @capacitor/core@8 @capacitor/android@8 @capacitor/filesystem@8 @capacitor/share@8 @capgo/capacitor-file-sharer@8
+          pnpm add -D @capacitor/cli@8
 
       - name: Build MiVI web app
         run: pnpm exec vite build --base=./ --target=chrome70
@@ -63,8 +63,7 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
         with:
-          packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
-
+          packages: 'platform-tools platforms;android-36 build-tools;35.0.0'
       - name: Build debug APK
         run: |
           chmod +x android/gradlew
