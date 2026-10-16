@@ -1,6 +1,5 @@
 import { useState, useCallback, useRef } from "react";
-import { Capacitor } from "@capacitor/core";
-import { FileSharer } from "@capgo/capacitor-file-sharer";
+import { Capacitor, registerPlugin } from "@capacitor/core";
 
 import { toast } from "@/components/ui/toast";
 import { useAppContext } from "@/contexts/app-context";
@@ -15,42 +14,120 @@ import type { ActivePhase } from "./export-progress-tracker";
 import { runRecorder } from "./run-recorder-worker";
 import { runLegacyRecorder } from "./legacy-recorder";
 
+interface VideoSaverPlugin {
+  beginSave(options: {
+    fileName: string;
+    contentType: string;
+  }): Promise<{ uri: string }>;
+
+  appendChunk(options: {
+    base64Data: string;
+  }): Promise<void>;
+
+  finishSave(): Promise<void>;
+
+  cancelSave(): Promise<void>;
+}
+
+const VideoSaver =
+  registerPlugin<VideoSaverPlugin>("VideoSaver");
+
 function blobToBase64(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
 
-    reader.onloadend = () => {
+    reader.onload = () => {
       if (typeof reader.result !== "string") {
-        reject(new Error("Gagal membaca hasil video."));
+        reject(new Error("Gagal membaca potongan video."));
         return;
       }
 
-      const result = reader.result;
-      const separator = result.indexOf(",");
+      const separator = reader.result.indexOf(",");
 
       if (separator < 0) {
-        reject(new Error("Format video tidak valid."));
+        reject(new Error("Format potongan video tidak valid."));
         return;
       }
 
-      resolve(result.slice(separator + 1));
+      resolve(reader.result.slice(separator + 1));
     };
 
     reader.onerror = () => {
-      reject(new Error("Gagal mengubah video."));
+      reject(new Error("Gagal membaca potongan video."));
     };
 
     reader.readAsDataURL(blob);
   });
 }
 
+async function saveVideoInChunks(
+  file: Blob,
+  fileName: string,
+  contentType: string,
+  signal: AbortSignal,
+): Promise<{ uri: string }> {
+  try {
+    const destination = await VideoSaver.beginSave({
+      fileName,
+      contentType,
+    });
+
+    // Kirim video sedikit demi sedikit untuk mengurangi lonjakan RAM.
+    const chunkSize = 128 * 1024;
+
+    for (
+      let offset = 0;
+      offset < file.size;
+      offset += chunkSize
+    ) {
+      if (signal.aborted) {
+        throw new Error("EXPORT_CANCELLED");
+      }
+
+      const chunk = file.slice(
+        offset,
+        Math.min(offset + chunkSize, file.size),
+      );
+
+      const base64Data = await blobToBase64(chunk);
+
+      if (signal.aborted) {
+        throw new Error("EXPORT_CANCELLED");
+      }
+
+      await VideoSaver.appendChunk({ base64Data });
+    }
+
+    if (signal.aborted) {
+      throw new Error("EXPORT_CANCELLED");
+    }
+
+    await VideoSaver.finishSave();
+
+    return destination;
+  } catch (error) {
+    try {
+      await VideoSaver.cancelSave();
+    } catch {
+      // Abaikan kesalahan saat membersihkan penyimpanan.
+    }
+
+    throw error;
+  }
+}
+
 export function useRecorder() {
-  const { midiTracksStore, rendererConfigStore, fileStore } = useAppContext();
+  const {
+    midiTracksStore,
+    rendererConfigStore,
+    fileStore,
+  } = useAppContext();
 
   const [recordingState, setRecordingState] =
     useState<RecordingStatus>(new ReadyState());
 
-  const abortControllerRef = useRef<AbortController | null>(null);
+  const abortControllerRef =
+    useRef<AbortController | null>(null);
 
   const toggleRecording = useCallback(async () => {
     if (!recordingState.isRecording) {
@@ -140,7 +217,10 @@ export function useRecorder() {
         .then(async (file) => {
           if (signal.aborted) return;
 
-          console.log("[MiVI Export] Platform:", Capacitor.getPlatform());
+          console.log(
+            "[MiVI Export] Platform:",
+            Capacitor.getPlatform(),
+          );
           console.log("[MiVI Export] Size:", file.size);
           console.log("[MiVI Export] Type:", file.type);
 
@@ -154,7 +234,11 @@ export function useRecorder() {
           const exportName =
             midiTracks?.name ?? audioSource.name ?? "audio";
 
-          const safeName = exportName.replace(/[\\/:*?"<>|]/g, "_");
+          const safeName = exportName.replace(
+            /[\\/:*?"<>|]/g,
+            "_",
+          );
+
           const extension = file.type.includes("webm")
             ? "webm"
             : rendererConfig.format;
@@ -167,23 +251,20 @@ export function useRecorder() {
               type: "info",
             });
 
-            const base64Data = await blobToBase64(file);
+            const result = await saveVideoInChunks(
+              file,
+              fileName,
+              file.type || "video/webm",
+              signal,
+            );
 
-            if (signal.aborted) return;
-
-            const result = await FileSharer.save({
-              filename: fileName,
-              contentType: file.type || "video/webm",
-              base64Data,
-              android: {
-                saveDirectory: "downloads",
-              },
-            });
-
-            console.log("[MiVI Export] Saved URI:", result.uri);
+            console.log(
+              "[MiVI Export] Saved URI:",
+              result.uri,
+            );
 
             toast.add({
-              title: "Video berhasil disimpan ke Download",
+              title: "Video berhasil disimpan",
               type: "success",
             });
 
@@ -213,7 +294,16 @@ export function useRecorder() {
         .catch((error) => {
           console.error("[MiVI Export] Error:", error);
 
-          if (signal.aborted) {
+          const errorMessage =
+            error instanceof Error
+              ? error.message
+              : String(error);
+
+          if (
+            signal.aborted ||
+            errorMessage.includes("SAVE_CANCELLED") ||
+            errorMessage.includes("EXPORT_CANCELLED")
+          ) {
             toast.add({
               title: "Export cancelled",
               type: "info",
@@ -221,14 +311,20 @@ export function useRecorder() {
             return;
           }
 
-          errorLogWithToast("Failed during recording or saving", error);
+          errorLogWithToast(
+            "Failed during recording or saving",
+            error,
+          );
         })
         .finally(() => {
           abortControllerRef.current = null;
           setRecordingState(new ReadyState());
         });
     } else {
-      abortControllerRef.current?.abort(new Error("Cancelled"));
+      abortControllerRef.current?.abort(
+        new Error("Cancelled"),
+      );
+
       setRecordingState(new ReadyState());
     }
   }, [
