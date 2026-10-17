@@ -59,7 +59,6 @@ export class MediaCompositor {
     ];
 
     const { resolution, format } = this.#rendererConfig;
-
     this.#outputFormat = OUTPUT_FORMATS[format];
 
     const selectedBitrate =
@@ -92,7 +91,170 @@ export class MediaCompositor {
     });
   }
 
-  // PENTING:
-  // Pertahankan semua method lain dari file aslimu
-  // mulai dari sini sampai akhir file.
+  subscribe(listener: PhaseProgressListener): () => void {
+    this.#listeners.add(listener);
+    return () => this.#listeners.delete(listener);
+  }
+
+  #emit(phase: ExportPhase, completed: number) {
+    for (const listener of this.#listeners) {
+      listener(phase, completed);
+    }
+  }
+
+  get #rendererConfig() {
+    return this.#resources.rendererConfig;
+  }
+
+  get #serializedAudio() {
+    return this.#resources.audioSource.serialized;
+  }
+
+  get #fps() {
+    return this.#rendererConfig.fps;
+  }
+
+  get #duration() {
+    return this.#serializedAudio.duration;
+  }
+
+  get #totalVideoFrames() {
+    return Math.ceil(this.#duration * this.#fps);
+  }
+
+  async composite() {
+    using input = new Input({
+      source: new BlobSource(this.#resources.audioSource.file),
+      formats: ALL_FORMATS,
+    });
+
+    const audio = await this.#initAudioConversion(input);
+
+    await this.#output.start();
+    await this.#renderVideo(audio);
+    await audio.execute();
+
+    this.#emit("Audio", this.#duration);
+
+    await this.#output.finalize();
+  }
+
+  async #initAudioConversion(input: Input) {
+    const track = await input.getPrimaryAudioTrack();
+
+    if (!track) {
+      throw new Error("No audio track found in file");
+    }
+
+    const codec = await track.getCodec();
+    const supportedCodecs =
+      this.#outputFormat.outputFormat.getSupportedAudioCodecs();
+
+    const audio: ConversionAudioOptions =
+      codec !== null && supportedCodecs.includes(codec)
+        ? {}
+        : {
+            codec: this.#outputFormat.audioCodec,
+            quality: new Quality({ bitrate: audioBitrate }),
+          };
+
+    const conversion = await Conversion.init({
+      input,
+      output: this.#output,
+      composable: true,
+      tracks: "primary",
+      video: { discard: true },
+      audio,
+    });
+
+    if (!conversion.utilizedTracks.includes(track)) {
+      const discarded = conversion.discardedTracks.find(
+        (d) => d.track === track,
+      );
+
+      throw new Error(
+        `Audio track cannot be exported: ${discarded?.reason ?? "unknown"}`,
+      );
+    }
+
+    conversion.onProgress = (_, processedTime) =>
+      this.#emit("Audio", Math.min(processedTime, this.#duration));
+
+    this.#audioConversion = conversion;
+
+    return conversion;
+  }
+
+  async #renderVideo(audio: Conversion) {
+    const ctx = this.#canvas.getContext("2d");
+
+    if (!ctx) {
+      throw new Error("Failed to get context");
+    }
+
+    const config = this.#rendererConfig;
+    const backgroundImageBitmap = this.#resources.backgroundImageBitmap;
+    const renderer = createRenderer(config.type, ctx);
+    const midiOffset = this.#resources.midiTracks?.midiOffset ?? 0;
+    const tracks = this.#resources.midiTracks?.tracks ?? [];
+    const frameDuration = 1 / this.#fps;
+
+    const precomputedFFT = this.#precomputeFFT();
+    let audioUntil = 0;
+
+    for (let i = 0; i < this.#totalVideoFrames; i++) {
+      const currentTime = i * frameDuration;
+
+      if (currentTime >= audioUntil) {
+        audioUntil = currentTime + audioLeadSeconds;
+
+        // oxlint-disable-next-line no-await-in-loop -- keeps the audio at most one second ahead of the video
+        await audio.execute({ until: audioUntil });
+      }
+
+      drawFrame(ctx, {
+        config,
+        renderer,
+        tracks,
+        currentTime: currentTime + midiOffset,
+        frequencyData: precomputedFFT
+          ? getFrameAtTime(precomputedFFT, currentTime)
+          : null,
+        backgroundImageBitmap,
+      });
+
+      this.#emit("Video Render", i + 1);
+
+      // oxlint-disable-next-line no-await-in-loop -- add() resolves once the encoder and writer can take more
+      await this.#video.add(currentTime, frameDuration);
+    }
+
+    this.#video.close();
+  }
+
+  #precomputeFFT() {
+    const { audioVisualizerConfig } = this.#rendererConfig;
+
+    if (audioVisualizerConfig.style === "none") {
+      this.#emit("FFT", this.#totalVideoFrames);
+      return null;
+    }
+
+    return precomputeFFTData(this.#serializedAudio, this.#fps, {
+      fftSize: audioVisualizerConfig.fftSize,
+      attackTime: audioVisualizerConfig.attackTime,
+      releaseTime: audioVisualizerConfig.releaseTime,
+      onProgress: (current) => this.#emit("FFT", current),
+    });
+  }
+
+  [Symbol.dispose](): void {
+    if (
+      this.#output.state === "pending" ||
+      this.#output.state === "started"
+    ) {
+      void this.#audioConversion?.cancel();
+      void this.#output.cancel();
+    }
+  }
 }
